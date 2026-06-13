@@ -341,6 +341,8 @@ class GitHubManagerApp:
         if self.github:
             self.fetch_remote_repos()
 
+        self.root.bind("<FocusIn>", self.on_focus_in)
+
     def setup_ui(self):
         style = ttk.Style()
         style.configure("Status.TLabel", foreground="gray")
@@ -546,6 +548,19 @@ class GitHubManagerApp:
             if tags:
                 html_url = tags[0].replace(".git", "")
                 os.startfile(html_url)
+
+    def on_focus_in(self, event):
+        old_selected = set()
+        for item in self.repo_tree.selection():
+            tags = self.repo_tree.item(item, "tags")
+            if tags:
+                old_selected.add(tags[0])
+        self.refresh_repo_list()
+        if old_selected:
+            for item in self.repo_tree.get_children():
+                tags = self.repo_tree.item(item, "tags")
+                if tags and tags[0] in old_selected:
+                    self.repo_tree.selection_add(item)
 
     def run_in_thread(self, func):
         thread = threading.Thread(target=func, daemon=True)
