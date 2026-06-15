@@ -271,6 +271,15 @@ class GitHubAPI:
         except:
             return False
 
+    def rename_repo(self, old_name, new_name):
+        try:
+            url = f"{self.base_url}/repos/{self.username}/{old_name}"
+            data = {"name": new_name}
+            resp = requests.patch(url, headers=self.headers, json=data, timeout=30)
+            return resp.status_code == 200
+        except:
+            return False
+
     def get_repo_url(self, repo_name):
         return f"https://github.com/{self.username}/{repo_name}.git"
 
@@ -446,6 +455,9 @@ class GitHubManagerApp:
             fill=tk.X, pady=(0, 5)
         )
         ttk.Button(right_frame, text="修改可见性", command=self.toggle_visibility).pack(
+            fill=tk.X, pady=(0, 5)
+        )
+        ttk.Button(right_frame, text="重命名仓库", command=self.rename_repo).pack(
             fill=tk.X, pady=(0, 5)
         )
 
@@ -751,6 +763,43 @@ class GitHubManagerApp:
                 self.log(f"修改失败: {repo_name}")
 
         self.run_in_thread(_toggle)
+
+    def rename_repo(self):
+        if not self.github:
+            messagebox.showwarning("警告", "请先验证Token")
+            return
+
+        selection = self.remote_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择要重命名的仓库")
+            return
+
+        item = selection[0]
+        tags = self.remote_tree.item(item, "tags")
+        old_name = tags[1]
+
+        new_name = simpledialog.askstring("重命名仓库", f"请输入新名称:\n当前: {old_name}")
+        if not new_name or new_name == old_name:
+            return
+
+        base_path = self.path_var.get()
+        old_path = os.path.join(base_path, old_name)
+        new_path = os.path.join(base_path, new_name)
+
+        def _rename():
+            if self.github.rename_repo(old_name, new_name):
+                self.log(f"云端重命名成功: {old_name} -> {new_name}")
+                if os.path.exists(old_path):
+                    os.rename(old_path, new_path)
+                    self.log(f"本地重命名成功: {old_name} -> {new_name}")
+                    git = GitManager(self.config)
+                    git.add_remote(new_path, self.github.get_repo_url(new_name), log_callback=self.log)
+                self.root.after(0, self.fetch_remote_repos)
+                self.root.after(0, self.refresh_repo_list)
+            else:
+                self.log(f"重命名失败: {old_name}")
+
+        self.run_in_thread(_rename)
 
     def create_new_repo(self):
         selection = self.remote_tree.selection()
