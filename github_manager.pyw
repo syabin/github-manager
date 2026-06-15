@@ -449,9 +449,6 @@ class GitHubManagerApp:
         )
 
         ttk.Label(right_frame, text="仓库操作", font=("", 9, "bold")).pack(anchor=tk.W)
-        ttk.Button(right_frame, text="新建仓库", command=self.create_new_repo).pack(
-            fill=tk.X, pady=(0, 3)
-        )
         ttk.Button(right_frame, text="新建云端仓库", command=self.create_remote_repo).pack(
             fill=tk.X, pady=(0, 3)
         )
@@ -598,29 +595,54 @@ class GitHubManagerApp:
         self.log(f"找到 {len(repos)} 个云端仓库")
 
     def pull_repos(self):
-        if not self.selected_repos:
-            messagebox.showwarning("警告", "请先选择要更新的仓库")
+        base_path = self.path_var.get()
+        if not base_path:
+            messagebox.showwarning("警告", "请先设置仓库目录")
+            return
+
+        repos_to_pull = []
+        repos_to_clone = []
+
+        for path in self.selected_repos:
+            if self.git.is_git_repo(path):
+                repos_to_pull.append(path)
+
+        remote_selection = self.remote_tree.selection()
+        for item in remote_selection:
+            tags = self.remote_tree.item(item, "tags")
+            clone_url = tags[0]
+            repo_name = tags[1]
+            repo_path = os.path.join(base_path, repo_name)
+            if os.path.exists(repo_path) and self.git.is_git_repo(repo_path):
+                if repo_path not in repos_to_pull:
+                    repos_to_pull.append(repo_path)
+            else:
+                repos_to_clone.append((repo_name, clone_url, repo_path))
+
+        if not repos_to_pull and not repos_to_clone:
+            messagebox.showwarning("警告", "请先选择要下载的仓库")
             return
 
         repos_with_changes = []
         repos_with_remote_updates = []
 
-        for path in self.selected_repos:
-            if self.git.is_git_repo(path):
-                ok, status = self.git.status(path)
-                if ok and status.strip():
-                    repos_with_changes.append(os.path.basename(path))
+        for path in repos_to_pull:
+            ok, status = self.git.status(path)
+            if ok and status.strip():
+                repos_with_changes.append(os.path.basename(path))
 
-                self.git.run_git(path, ["fetch", "origin"])
-                ok, branch = self.git.run_git(path, ["branch", "--show-current"])
-                branch = branch.strip() if ok and branch.strip() else "main"
-                ok, local_time = self.git.run_git(path, ["log", "-1", "--format=%at"])
-                ok2, remote_time = self.git.run_git(path, ["log", "-1", "--format=%at", f"origin/{branch}"])
-                if ok and ok2 and local_time.strip() and remote_time.strip():
-                    if int(remote_time.strip()) > int(local_time.strip()):
-                        repos_with_remote_updates.append(os.path.basename(path))
+            self.git.run_git(path, ["fetch", "origin"])
+            ok, branch = self.git.run_git(path, ["branch", "--show-current"])
+            branch = branch.strip() if ok and branch.strip() else "main"
+            ok, local_time = self.git.run_git(path, ["log", "-1", "--format=%at"])
+            ok2, remote_time = self.git.run_git(path, ["log", "-1", "--format=%at", f"origin/{branch}"])
+            if ok and ok2 and local_time and remote_time and local_time.strip() and remote_time.strip():
+                if int(remote_time.strip()) > int(local_time.strip()):
+                    repos_with_remote_updates.append(os.path.basename(path))
 
         msg_parts = []
+        if repos_to_clone:
+            msg_parts.append("将克隆以下仓库:\n" + "\n".join([r[0] for r in repos_to_clone]))
         if repos_with_changes:
             msg_parts.append("以下仓库有未保存的修改:\n" + "\n".join(repos_with_changes))
         if repos_with_remote_updates:
@@ -632,9 +654,10 @@ class GitHubManagerApp:
                 return
 
         def _pull():
-            for path in self.selected_repos:
-                if self.git.is_git_repo(path):
-                    self.git.pull(path, log_callback=self.log)
+            for repo_name, clone_url, repo_path in repos_to_clone:
+                self.git.clone(clone_url, repo_path, log_callback=self.log)
+            for path in repos_to_pull:
+                self.git.pull(path, log_callback=self.log)
             self.root.after(0, self.refresh_repo_list)
 
         self.run_in_thread(_pull)
