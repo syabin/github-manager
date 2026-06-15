@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import subprocess
 import threading
@@ -6,6 +7,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext, simpledialog
 import requests
 from datetime import datetime
+
+APP_VERSION = "1.1.0"
+UPDATE_REPO = "syabin/github-manager"
 
 
 class ConfigManager:
@@ -329,7 +333,7 @@ class GitHubAPI:
 class GitHubManagerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("GitHub 仓库管理工具")
+        self.root.title(f"GitHub 仓库管理工具 v{APP_VERSION}")
         self.root.geometry("900x600")
 
         self.config = ConfigManager()
@@ -445,6 +449,10 @@ class GitHubManagerApp:
         ttk.Button(right_frame, text="修改可见性", command=self.toggle_visibility).pack(
             fill=tk.X, pady=(0, 5)
         )
+        ttk.Separator(right_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
+        ttk.Button(right_frame, text="检查更新", command=self.check_update).pack(
+            fill=tk.X, pady=(0, 5)
+        )
 
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding=5)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
@@ -497,6 +505,61 @@ class GitHubManagerApp:
         else:
             self.log("Token验证失败")
             messagebox.showerror("错误", "Token验证失败，请检查用户名和Token")
+
+    def check_update(self):
+        def _check():
+            try:
+                self.log("正在检查更新...")
+                url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/github_manager.pyw"
+                resp = requests.get(url, timeout=10)
+                if resp.status_code != 200:
+                    self.log("检查更新失败")
+                    return
+
+                content = resp.text
+                version_match = None
+                for line in content.split('\n'):
+                    if line.startswith('APP_VERSION'):
+                        version_match = line.split('"')[1]
+                        break
+
+                if not version_match:
+                    self.log("无法获取远程版本号")
+                    return
+
+                self.log(f"远程版本: {version_match}, 当前版本: {APP_VERSION}")
+                if version_match > APP_VERSION:
+                    if messagebox.askyesno("发现新版本", f"发现新版本 {version_match}\n当前版本: {APP_VERSION}\n\n是否更新？"):
+                        self._do_update(content)
+                else:
+                    self.log("已是最新版本")
+            except Exception as e:
+                self.log(f"检查更新出错: {e}")
+
+        self.run_in_thread(_check)
+
+    def _do_update(self, new_content):
+        try:
+            current_file = os.path.abspath(__file__)
+            backup_file = current_file + ".bak"
+
+            if os.path.exists(backup_file):
+                os.remove(backup_file)
+            os.rename(current_file, backup_file)
+
+            with open(current_file, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            self.log("更新完成，正在重启...")
+            messagebox.showinfo("更新成功", "更新完成，程序即将重启")
+
+            python = sys.executable
+            os.execl(python, python, *sys.argv)
+        except Exception as e:
+            self.log(f"更新失败: {e}")
+            if os.path.exists(backup_file):
+                os.rename(backup_file, current_file)
+            messagebox.showerror("更新失败", f"更新出错: {e}")
 
     def log(self, msg):
         timestamp = datetime.now().strftime("%H:%M:%S")
