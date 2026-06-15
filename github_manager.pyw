@@ -9,7 +9,6 @@ import requests
 from datetime import datetime
 
 APP_VERSION = "1.1.0"
-UPDATE_REPO = "syabin/github-manager"
 
 
 class ConfigManager:
@@ -449,10 +448,6 @@ class GitHubManagerApp:
         ttk.Button(right_frame, text="修改可见性", command=self.toggle_visibility).pack(
             fill=tk.X, pady=(0, 5)
         )
-        ttk.Separator(right_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
-        ttk.Button(right_frame, text="强制更新", command=self.force_update).pack(
-            fill=tk.X, pady=(0, 5)
-        )
 
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding=5)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
@@ -505,52 +500,6 @@ class GitHubManagerApp:
         else:
             self.log("Token验证失败")
             messagebox.showerror("错误", "Token验证失败，请检查用户名和Token")
-
-    def force_update(self):
-        def _force():
-            try:
-                self.log("正在强制下载最新版本...")
-                url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/github_manager.pyw"
-                resp = requests.get(url, timeout=30)
-                if resp.status_code != 200:
-                    self.log("下载失败")
-                    return
-
-                content = resp.text
-                if not content or "APP_VERSION" not in content:
-                    self.log("下载内容无效")
-                    return
-
-                if messagebox.askyesno("强制更新", "将从云端下载最新版本并覆盖当前文件\n\n是否继续？"):
-                    self._do_update(content)
-            except Exception as e:
-                self.log(f"强制更新出错: {e}")
-
-        self.run_in_thread(_force)
-
-    def _do_update(self, new_content):
-        try:
-            current_file = os.path.abspath(__file__)
-            backup_file = current_file + ".bak"
-
-            if os.path.exists(backup_file):
-                os.remove(backup_file)
-            os.rename(current_file, backup_file)
-
-            with open(current_file, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-
-            self.log("更新完成，正在重启...")
-            messagebox.showinfo("更新成功", "更新完成，程序即将重启")
-
-            self.root.destroy()
-            python = sys.executable
-            os.execl(python, python, *sys.argv)
-        except Exception as e:
-            self.log(f"更新失败: {e}")
-            if os.path.exists(backup_file):
-                os.rename(backup_file, current_file)
-            messagebox.showerror("更新失败", f"更新出错: {e}")
 
     def log(self, msg):
         timestamp = datetime.now().strftime("%H:%M:%S")
