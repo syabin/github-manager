@@ -87,7 +87,7 @@ class GitManager:
             if log_callback:
                 log_callback(msg)
 
-        _log("正在检查更新...")
+        _log("正在同步...")
 
         ok, _ = self.run_git(repo_path, ["fetch", "origin"])
         if not ok:
@@ -127,7 +127,7 @@ class GitManager:
             if log_callback:
                 log_callback(msg)
 
-        _log("正在检查更新...")
+        _log("正在同步...")
 
         ok, _ = self.run_git(repo_path, ["fetch", "origin"])
         if not ok:
