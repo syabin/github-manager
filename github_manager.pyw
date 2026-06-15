@@ -44,7 +44,8 @@ class GitManager:
         cmd = [r"C:\Program Files\Git\cmd\git.exe"] + args
         try:
             result = subprocess.run(
-                cmd, cwd=repo_path, capture_output=True, text=True, timeout=300
+                cmd, cwd=repo_path, capture_output=True, text=True, timeout=300,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             return result.returncode == 0, result.stdout + result.stderr
         except subprocess.TimeoutExpired:
@@ -64,7 +65,8 @@ class GitManager:
         cmd = ["git", "clone", repo_url, target_path]
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=600
+                cmd, capture_output=True, text=True, timeout=600,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             if result.returncode == 0:
                 _log("克隆成功")
@@ -341,7 +343,6 @@ class GitHubManagerApp:
         if self.github:
             self.fetch_remote_repos()
 
-        self.root.bind("<FocusIn>", self.on_focus_in)
 
     def setup_ui(self):
         style = ttk.Style()
@@ -548,19 +549,6 @@ class GitHubManagerApp:
             if tags:
                 html_url = tags[0].replace(".git", "")
                 os.startfile(html_url)
-
-    def on_focus_in(self, event):
-        old_selected = set()
-        for item in self.repo_tree.selection():
-            tags = self.repo_tree.item(item, "tags")
-            if tags:
-                old_selected.add(tags[0])
-        self.refresh_repo_list()
-        if old_selected:
-            for item in self.repo_tree.get_children():
-                tags = self.repo_tree.item(item, "tags")
-                if tags and tags[0] in old_selected:
-                    self.repo_tree.selection_add(item)
 
     def run_in_thread(self, func):
         thread = threading.Thread(target=func, daemon=True)
