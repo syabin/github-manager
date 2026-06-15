@@ -553,6 +553,7 @@ class GitHubManagerApp:
             self.log("更新完成，正在重启...")
             messagebox.showinfo("更新成功", "更新完成，程序即将重启")
 
+            self.root.destroy()
             python = sys.executable
             os.execl(python, python, *sys.argv)
         except Exception as e:
