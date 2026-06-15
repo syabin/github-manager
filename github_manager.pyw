@@ -450,9 +450,6 @@ class GitHubManagerApp:
             fill=tk.X, pady=(0, 5)
         )
         ttk.Separator(right_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
-        ttk.Button(right_frame, text="检查更新", command=self.check_update).pack(
-            fill=tk.X, pady=(0, 5)
-        )
         ttk.Button(right_frame, text="强制更新", command=self.force_update).pack(
             fill=tk.X, pady=(0, 5)
         )
@@ -508,38 +505,6 @@ class GitHubManagerApp:
         else:
             self.log("Token验证失败")
             messagebox.showerror("错误", "Token验证失败，请检查用户名和Token")
-
-    def check_update(self):
-        def _check():
-            try:
-                self.log("正在检查更新...")
-                url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/github_manager.pyw"
-                resp = requests.get(url, timeout=10)
-                if resp.status_code != 200:
-                    self.log("检查更新失败")
-                    return
-
-                content = resp.text
-                version_match = None
-                for line in content.split('\n'):
-                    if line.startswith('APP_VERSION'):
-                        version_match = line.split('"')[1]
-                        break
-
-                if not version_match:
-                    self.log("无法获取远程版本号")
-                    return
-
-                self.log(f"远程版本: {version_match}, 当前版本: {APP_VERSION}")
-                if version_match > APP_VERSION:
-                    if messagebox.askyesno("发现新版本", f"发现新版本 {version_match}\n当前版本: {APP_VERSION}\n\n是否更新？"):
-                        self._do_update(content)
-                else:
-                    self.log("已是最新版本")
-            except Exception as e:
-                self.log(f"检查更新出错: {e}")
-
-        self.run_in_thread(_check)
 
     def force_update(self):
         def _force():
