@@ -140,7 +140,7 @@ class GitManager:
         ok, local_time = self.run_git(repo_path, ["log", "-1", "--format=%at"])
         ok2, remote_time = self.run_git(repo_path, ["log", "-1", "--format=%at", f"origin/{branch}"])
 
-        if ok and ok2 and local_time.strip() and remote_time.strip():
+        if ok and ok2 and local_time and remote_time and local_time.strip() and remote_time.strip():
             local_ts = int(local_time.strip())
             remote_ts = int(remote_time.strip())
             if remote_ts > local_ts:
@@ -723,7 +723,7 @@ class GitHubManagerApp:
                 branch = branch.strip() if ok and branch.strip() else "main"
                 ok, local_time = self.git.run_git(path, ["log", "-1", "--format=%at"])
                 ok2, remote_time = self.git.run_git(path, ["log", "-1", "--format=%at", f"origin/{branch}"])
-                if ok and ok2 and local_time.strip() and remote_time.strip():
+                if ok and ok2 and local_time and remote_time and local_time.strip() and remote_time.strip():
                     if int(remote_time.strip()) > int(local_time.strip()):
                         repos_with_remote_updates.append(os.path.basename(path))
 
