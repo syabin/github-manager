@@ -432,32 +432,36 @@ class GitHubManagerApp:
         right_frame = ttk.Frame(content_frame)
         right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
 
+        ttk.Label(right_frame, text="刷新", font=("", 9, "bold")).pack(anchor=tk.W)
         ttk.Button(right_frame, text="刷新本地", command=self.refresh_repo_list).pack(
-            fill=tk.X, pady=(0, 5)
+            fill=tk.X, pady=(0, 3)
         )
         ttk.Button(right_frame, text="获取云端列表", command=self.fetch_remote_repos).pack(
-            fill=tk.X, pady=(0, 5)
+            fill=tk.X, pady=(0, 8)
         )
-        ttk.Button(right_frame, text="下载", command=self.pull_repos).pack(
-            fill=tk.X, pady=(0, 5)
+
+        ttk.Label(right_frame, text="同步", font=("", 9, "bold")).pack(anchor=tk.W)
+        ttk.Button(right_frame, text="下载 (Pull)", command=self.pull_repos).pack(
+            fill=tk.X, pady=(0, 3)
         )
-        ttk.Button(right_frame, text="上传(Push)", command=self.push_repos).pack(
-            fill=tk.X, pady=(0, 5)
+        ttk.Button(right_frame, text="上传 (Push)", command=self.push_repos).pack(
+            fill=tk.X, pady=(0, 8)
         )
-        ttk.Separator(right_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
+
+        ttk.Label(right_frame, text="仓库操作", font=("", 9, "bold")).pack(anchor=tk.W)
         ttk.Button(right_frame, text="新建仓库", command=self.create_new_repo).pack(
-            fill=tk.X, pady=(0, 5)
-        )
-        ttk.Button(right_frame, text="初始化Git", command=self.init_selected).pack(
-            fill=tk.X, pady=(0, 5)
+            fill=tk.X, pady=(0, 3)
         )
         ttk.Button(right_frame, text="新建云端仓库", command=self.create_remote_repo).pack(
-            fill=tk.X, pady=(0, 5)
-        )
-        ttk.Button(right_frame, text="修改可见性", command=self.toggle_visibility).pack(
-            fill=tk.X, pady=(0, 5)
+            fill=tk.X, pady=(0, 3)
         )
         ttk.Button(right_frame, text="重命名仓库", command=self.rename_repo).pack(
+            fill=tk.X, pady=(0, 3)
+        )
+        ttk.Button(right_frame, text="修改可见性", command=self.toggle_visibility).pack(
+            fill=tk.X, pady=(0, 3)
+        )
+        ttk.Button(right_frame, text="初始化Git", command=self.init_selected).pack(
             fill=tk.X, pady=(0, 5)
         )
 
