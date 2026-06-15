@@ -433,10 +433,7 @@ class GitHubManagerApp:
         right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
 
         ttk.Label(right_frame, text="刷新", font=("", 9, "bold")).pack(anchor=tk.W)
-        ttk.Button(right_frame, text="刷新本地", command=self.refresh_repo_list).pack(
-            fill=tk.X, pady=(0, 3)
-        )
-        ttk.Button(right_frame, text="获取云端列表", command=self.fetch_remote_repos).pack(
+        ttk.Button(right_frame, text="刷新", command=self.refresh_all).pack(
             fill=tk.X, pady=(0, 8)
         )
 
@@ -525,6 +522,11 @@ class GitHubManagerApp:
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
         self.log_text.configure(state=tk.DISABLED)
+
+    def refresh_all(self):
+        self.refresh_repo_list()
+        if self.github:
+            self.fetch_remote_repos()
 
     def refresh_repo_list(self):
         for item in self.repo_tree.get_children():
