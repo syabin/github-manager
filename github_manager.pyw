@@ -510,7 +510,7 @@ class GitHubManagerApp:
         def _force():
             try:
                 self.log("正在强制下载最新版本...")
-                url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/github_manager.pyw"
+                url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/master/github_manager.pyw"
                 resp = requests.get(url, timeout=30)
                 if resp.status_code != 200:
                     self.log("下载失败")
