@@ -3,22 +3,10 @@ import sys
 import json
 import subprocess
 import threading
-import traceback
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext, simpledialog
 import requests
 from datetime import datetime
-
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug.log")
-
-def debug_log(msg):
-    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    line = f"[{timestamp}] {msg}"
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
 
 APP_VERSION = "1.1.0"
 
@@ -57,20 +45,16 @@ class GitManager:
 
     def run_git(self, repo_path, args):
         cmd = [r"C:\Program Files\Git\cmd\git.exe"] + args
-        debug_log(f"run_git: cwd={repo_path} cmd={args}")
         try:
             result = subprocess.run(
                 cmd, cwd=repo_path, capture_output=True, text=True, timeout=300,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             out = result.stdout + result.stderr
-            debug_log(f"run_git: rc={result.returncode} out={out[:500]}")
             return result.returncode == 0, out
         except subprocess.TimeoutExpired:
-            debug_log(f"run_git: TIMEOUT")
             return False, "命令超时"
         except Exception as e:
-            debug_log(f"run_git: EXCEPTION {e}")
             return False, str(e)
 
     def run_git_async(self, repo_path, args, on_done, post=None):
@@ -82,13 +66,11 @@ class GitManager:
                 ok, out = self.run_git(repo_path, args)
             except Exception as e:
                 err = f"{e}\n{traceback.format_exc()}"
-                debug_log(f"run_git_async EXCEPTION: {args} err={err[:500]}")
                 if post is not None:
                     post(False, err)
                 elif on_done is not None:
                     on_done(False, err)
                 return
-            debug_log(f"run_git_async DONE: args={args} ok={ok} out={out[:300]}")
             if post is not None:
                 post(ok, out)
             elif on_done is not None:
@@ -641,12 +623,8 @@ class GitHubManagerApp:
 
     def refresh_repo_list(self):
         if self._scanning:
-            debug_log("refresh_repo_list: skipped, already scanning")
             return
         self._scanning = True
-
-        for item in self.repo_tree.get_children():
-            self.repo_tree.delete(item)
 
         path = self.path_var.get()
         if not path or not os.path.exists(path):
@@ -661,18 +639,13 @@ class GitHubManagerApp:
                 repos = self.git.get_local_repos(
                     path, self.config.config.get("exclude_dirs", []), check_remote=True
                 )
-                debug_log(f"refresh_repo_list: found {len(repos)} repos")
                 self.root_after(self._finish_scan, repos)
-            except Exception as e:
-                debug_log(f"refresh_repo_list ERROR: {e}\n{traceback.format_exc()}")
+            except Exception:
                 self.root_after(lambda: (self.status_var.set("扫描出错"), setattr(self, '_scanning', False)))
 
         self.run_in_thread(_worker)
 
     def _finish_scan(self, repos):
-        for item in self.repo_tree.get_children():
-            self.repo_tree.delete(item)
-
         status_tag_map = {
             "有更新": "update",
             "有修改+有更新": "update_change",
@@ -681,11 +654,33 @@ class GitHubManagerApp:
             "未初始化": "uninit",
             "未知": "unknown",
         }
+
+        existing = {}
+        for item in self.repo_tree.get_children():
+            tags = self.repo_tree.item(item, "tags")
+            if tags:
+                existing[tags[0]] = item
+
+        new_paths = {repo["path"] for repo in repos}
+
+        for path_key in list(existing):
+            if path_key not in new_paths:
+                self.repo_tree.delete(existing[path_key])
+
         for repo in repos:
             tag = status_tag_map.get(repo["status"], "")
-            self.repo_tree.insert(
-                "", tk.END, values=(repo["name"], repo["status"]), tags=(repo["path"], tag)
-            )
+            if repo["path"] in existing:
+                self.repo_tree.item(
+                    existing[repo["path"]],
+                    values=(repo["name"], repo["status"]),
+                    tags=(repo["path"], tag),
+                )
+            else:
+                self.repo_tree.insert(
+                    "", tk.END, values=(repo["name"], repo["status"]),
+                    tags=(repo["path"], tag),
+                )
+
         self._scanning = False
         self.status_var.set("就绪")
         self.log(f"找到 {len(repos)} 个仓库")
@@ -743,10 +738,9 @@ class GitHubManagerApp:
 
     def root_after(self, callback, *args):
         try:
-            debug_log(f"root_after: scheduling {callback.__name__} args_len={len(args)}")
             self.root.after(0, lambda: callback(*args))
-        except Exception as e:
-            debug_log(f"root_after FAILED: {e}")
+        except Exception:
+            pass
 
     def _run_git_async(self, repo_path, args, on_done):
         """在子线程跑 git 命令，完成后用 root_after 把结果投回主线程。"""
@@ -755,7 +749,6 @@ class GitHubManagerApp:
                 ok, out = self.git.run_git(repo_path, args)
             except Exception as e:
                 ok, out = False, f"{e}\n{traceback.format_exc()}"
-            debug_log(f"_run_git_async DONE: args={args} ok={ok} out={out[:300] if out else ''}")
             self.root_after(on_done, ok, out)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -826,9 +819,7 @@ class GitHubManagerApp:
         }
 
         def _check_one():
-            debug_log(f"pull _check_one: idx={state['idx']}/{len(state['queue'])}")
             if state["idx"] >= len(state["queue"]):
-                debug_log("pull _check_one: all done, calling _ask_confirm")
                 self.root_after(_ask_confirm)
                 return
             path = state["queue"][state["idx"]]
@@ -836,38 +827,30 @@ class GitHubManagerApp:
             self.status_var.set(f"检查 {name} ({state['idx']+1}/{len(state['queue'])})...")
 
             def _on_status(ok, status):
-                debug_log(f"pull _on_status: name={name} ok={ok} status={status[:100] if status else ''}")
                 if ok and status.strip():
                     state["with_changes"].append(name)
-                debug_log(f"pull _on_status: fetch origin for {name}")
                 self._run_git_async(path, ["fetch", "origin"], _on_fetched)
 
             def _on_fetched(*_):
-                debug_log(f"pull _on_fetched: {name}, getting branch")
                 self._run_git_async(path, ["branch", "--show-current"], _on_branch)
 
             def _on_branch(ok_b, branch):
                 br = branch.strip() if ok_b and branch.strip() else "main"
-                debug_log(f"pull _on_branch: {name} branch={br} ok={ok_b}")
                 self._run_git_async(path, ["log", "-1", "--format=%at"], lambda ok_l, local_time: _on_local(br, ok_l, local_time))
 
             def _on_local(branch, ok_l, local_time):
-                debug_log(f"pull _on_local: {name} branch={branch} ok={ok_l} time={local_time[:30] if local_time else ''}")
                 def _on_remote(ok_r, remote_time):
-                    debug_log(f"pull _on_remote: {name} ok={ok_r} time={remote_time[:30] if remote_time else ''}")
                     if (ok_l and ok_r and local_time.strip()
                             and remote_time.strip()
                             and int(remote_time.strip()) > int(local_time.strip())):
                         state["with_remote_updates"].append(name)
                     state["idx"] += 1
-                    debug_log(f"pull _on_remote: advancing idx to {state['idx']}")
                     self.root_after(_check_one)
 
                 self._run_git_async(
                     path, ["log", "-1", "--format=%at", f"origin/{branch}"], _on_remote
                 )
 
-            debug_log(f"pull _check_one: starting fetch for {name}")
             self._run_git_async(path, ["fetch", "origin"], _on_fetched)
 
         def _ask_confirm():
@@ -892,14 +875,11 @@ class GitHubManagerApp:
         self.root_after(_check_one)
 
     def _do_pull(self, repos_to_pull, repos_to_clone):
-        debug_log(f"_do_pull: clone={len(repos_to_clone)} pull={len(repos_to_pull)}")
         self.status_var.set("正在下载...")
         queue = list(repos_to_clone) + [("pull", p) for p in repos_to_pull]
 
         def _step(idx=0):
-            debug_log(f"_do_pull _step: idx={idx}/{len(queue)}")
             if idx >= len(queue):
-                debug_log("_do_pull: all done")
                 self.root_after(lambda: self._on_sync_done("下载完成"))
                 return
             item = queue[idx]
@@ -910,17 +890,14 @@ class GitHubManagerApp:
                 self.status_var.set(f"克隆 {item[0]} ({idx+1}/{len(queue)})...")
 
             def _done(ok, out):
-                debug_log(f"_do_pull _done: ok={ok} out={out[:200] if out else ''}")
                 self.root_after(lambda: _step(idx + 1))
 
             if isinstance(item, tuple) and item[0] == "pull":
-                debug_log(f"_do_pull: pulling {item[1]}")
                 self.git.run_git_async(
                     item[1], ["pull", "--no-rebase"], on_done=None, post=_done
                 )
             else:
                 _repo_name, clone_url, repo_path = item
-                debug_log(f"_do_pull: cloning {clone_url} -> {repo_path}")
                 self.git.clone_async(
                     clone_url, repo_path, self.log, on_done=None, post=_done
                 )
@@ -928,7 +905,6 @@ class GitHubManagerApp:
         self.root_after(_step)
 
     def push_repos(self):
-        debug_log(f"push_repos: selected={list(self.selected_repos)}")
         if not self.selected_repos:
             messagebox.showwarning("警告", "请先选择要上传的仓库")
             return
@@ -938,7 +914,6 @@ class GitHubManagerApp:
 
         selected = list(self.selected_repos)
         queue = [p for p in selected if self.git.is_git_repo(p)]
-        debug_log(f"push_repos: queue={[os.path.basename(p) for p in queue]}")
         state = {
             "queue": queue,
             "idx": 0,
@@ -947,9 +922,7 @@ class GitHubManagerApp:
         }
 
         def _check_one():
-            debug_log(f"push _check_one: idx={state['idx']}/{len(state['queue'])}")
             if state["idx"] >= len(state["queue"]):
-                debug_log("push _check_one: all done, calling _ask_or_push")
                 self.root_after(_ask_or_push)
                 return
             path = state["queue"][state["idx"]]
@@ -957,23 +930,18 @@ class GitHubManagerApp:
             self.status_var.set(f"检查 {name} ({state['idx']+1}/{len(state['queue'])})...")
 
             def _on_fetched(*_):
-                debug_log(f"push _on_fetched: {name}, getting branch")
                 self._run_git_async(path, ["branch", "--show-current"], _on_branch)
 
             def _on_branch(ok_b, branch):
                 br = branch.strip() if ok_b and branch.strip() else "main"
-                debug_log(f"push _on_branch: {name} branch={br} ok={ok_b}")
                 self._run_git_async(path, ["log", "-1", "--format=%at"], lambda ok_l, local_time: _on_local(br, ok_l, local_time))
 
             def _on_local(branch, ok_l, local_time):
-                debug_log(f"push _on_local: {name} branch={branch} ok={ok_l} time={local_time[:30] if local_time else ''}")
                 def _on_remote(ok_r, remote_time):
-                    debug_log(f"push _on_remote: {name} ok={ok_r} time={remote_time[:30] if remote_time else ''}")
                     if (ok_l and ok_r and local_time.strip()
                             and remote_time.strip()
                             and int(remote_time.strip()) > int(local_time.strip())):
                         state["with_remote_updates"].append(name)
-                    debug_log(f"push _on_remote: checking status for {name}")
                     self._run_git_async(path, ["status", "--porcelain"], _on_status)
 
                 self._run_git_async(
@@ -981,14 +949,11 @@ class GitHubManagerApp:
                 )
 
             def _on_status(ok_s, status):
-                debug_log(f"push _on_status: {name} ok={ok_s} status={status[:100] if status else ''}")
                 if ok_s and status.strip():
                     state["has_changes"] = True
                 state["idx"] += 1
-                debug_log(f"push _on_status: advancing idx to {state['idx']}")
                 self.root_after(_check_one)
 
-            debug_log(f"push _check_one: starting fetch for {name}")
             self._run_git_async(path, ["fetch", "origin"], _on_fetched)
 
         def _ask_or_push():
@@ -1050,14 +1015,11 @@ class GitHubManagerApp:
         return result["msg"]
 
     def _do_push(self, selected, commit_msg):
-        debug_log(f"_do_push: selected={[os.path.basename(p) for p in selected]} commit_msg={commit_msg}")
         self.status_var.set("正在上传...")
         queue = [p for p in selected if self.git.is_git_repo(p)]
 
         def _step(idx=0):
-            debug_log(f"_do_push _step: idx={idx}/{len(queue)}")
             if idx >= len(queue):
-                debug_log("_do_push: all done")
                 self.root_after(lambda: self._on_sync_done("上传完成"))
                 return
             path = queue[idx]
@@ -1065,19 +1027,15 @@ class GitHubManagerApp:
             self.status_var.set(f"上传 {name} ({idx+1}/{len(queue)})...")
 
             def _on_status(ok_s, status):
-                debug_log(f"_do_push _on_status: {name} ok={ok_s} status={status[:100] if status else ''}")
                 if ok_s and status.strip():
-                    debug_log(f"_do_push: committing {name}")
                     self.git.commit(
                         path,
                         commit_msg if commit_msg else f"update {name}",
                         log_callback=self.log,
                     )
-                debug_log(f"_do_push: pushing {name}")
                 self.git.push_async(path, on_done=None, post=_done, log_callback=self.log)
 
             def _done(ok, out):
-                debug_log(f"_do_push _done: {name} ok={ok} out={out[:200] if out else ''}")
                 self.root_after(lambda: _step(idx + 1))
 
             self._run_git_async(path, ["status", "--porcelain"], _on_status)
