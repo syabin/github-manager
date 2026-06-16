@@ -442,6 +442,7 @@ class GitHubManagerApp:
         self.github = None
 
         self.selected_repos = set()
+        self._scanning = False
         self.setup_ui()
         self.load_settings()
         self.refresh_repo_list()
@@ -639,17 +640,39 @@ class GitHubManagerApp:
         self.run_in_thread(_do)
 
     def refresh_repo_list(self):
+        if self._scanning:
+            debug_log("refresh_repo_list: skipped, already scanning")
+            return
+        self._scanning = True
+
         for item in self.repo_tree.get_children():
             self.repo_tree.delete(item)
 
         path = self.path_var.get()
         if not path or not os.path.exists(path):
             self.log("仓库目录不存在或未设置")
+            self._scanning = False
             return
 
-        repos = self.git.get_local_repos(
-            path, self.config.config.get("exclude_dirs", []), check_remote=True
-        )
+        self.status_var.set("正在扫描仓库...")
+
+        def _worker():
+            try:
+                repos = self.git.get_local_repos(
+                    path, self.config.config.get("exclude_dirs", []), check_remote=True
+                )
+                debug_log(f"refresh_repo_list: found {len(repos)} repos")
+                self.root_after(self._finish_scan, repos)
+            except Exception as e:
+                debug_log(f"refresh_repo_list ERROR: {e}\n{traceback.format_exc()}")
+                self.root_after(lambda: (self.status_var.set("扫描出错"), setattr(self, '_scanning', False)))
+
+        self.run_in_thread(_worker)
+
+    def _finish_scan(self, repos):
+        for item in self.repo_tree.get_children():
+            self.repo_tree.delete(item)
+
         status_tag_map = {
             "有更新": "update",
             "有修改+有更新": "update_change",
@@ -663,6 +686,8 @@ class GitHubManagerApp:
             self.repo_tree.insert(
                 "", tk.END, values=(repo["name"], repo["status"]), tags=(repo["path"], tag)
             )
+        self._scanning = False
+        self.status_var.set("就绪")
         self.log(f"找到 {len(repos)} 个仓库")
 
     def on_repo_click(self, event):
@@ -718,9 +743,10 @@ class GitHubManagerApp:
 
     def root_after(self, callback, *args):
         try:
+            debug_log(f"root_after: scheduling {callback.__name__} args_len={len(args)}")
             self.root.after(0, lambda: callback(*args))
-        except Exception:
-            pass
+        except Exception as e:
+            debug_log(f"root_after FAILED: {e}")
 
     def _run_git_async(self, repo_path, args, on_done):
         """在子线程跑 git 命令，完成后用 root_after 把结果投回主线程。"""
