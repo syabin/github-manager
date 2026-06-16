@@ -427,6 +427,7 @@ class GitHubManagerApp:
         self._scanning = False
         self.setup_ui()
         self.load_settings()
+        self.refresh_repo_list()
         self.refresh_repo_list(check_remote=True)
         if self.github:
             self.fetch_remote_repos()
