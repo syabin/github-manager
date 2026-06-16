@@ -59,6 +59,17 @@ python github_manager.py
 | 操作按钮 | 刷新、下载、上传、新建等操作 |
 | 日志区 | 实时显示操作日志 |
 
+## 文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `github_manager.pyw` | 主程序（全部代码） |
+| `AGENT.md` | Agent 指南（供 AI 修改参考） |
+| `requirements.txt` | Python 依赖 |
+| `.env` | 配置文件（自动生成） |
+| `update.bat` | Windows 更新脚本 |
+| `update.py` | 更新逻辑 |
+
 ## 注意事项
 
 1. **Git路径**：默认使用 `C:\Program Files\Git\cmd\git.exe`，如需修改请编辑代码
