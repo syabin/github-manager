@@ -460,17 +460,14 @@ class GitHubManagerApp:
         right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
 
         ttk.Label(right_frame, text="刷新", font=("", 9, "bold")).pack(anchor=tk.W)
-        ttk.Button(right_frame, text="刷新", command=self.refresh_all).pack(
-            fill=tk.X, pady=(0, 8)
-        )
+        self.refresh_btn = ttk.Button(right_frame, text="刷新", command=self.refresh_all)
+        self.refresh_btn.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(right_frame, text="同步", font=("", 9, "bold")).pack(anchor=tk.W)
-        ttk.Button(right_frame, text="下载 (Pull)", command=self.pull_repos).pack(
-            fill=tk.X, pady=(0, 3)
-        )
-        ttk.Button(right_frame, text="上传 (Push)", command=self.push_repos).pack(
-            fill=tk.X, pady=(0, 8)
-        )
+        self.pull_btn = ttk.Button(right_frame, text="下载 (Pull)", command=self.pull_repos)
+        self.pull_btn.pack(fill=tk.X, pady=(0, 3))
+        self.push_btn = ttk.Button(right_frame, text="上传 (Push)", command=self.push_repos)
+        self.push_btn.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(right_frame, text="仓库操作", font=("", 9, "bold")).pack(anchor=tk.W)
         ttk.Button(right_frame, text="新建云端仓库", command=self.create_remote_repo).pack(
@@ -551,9 +548,17 @@ class GitHubManagerApp:
         self.log_text.configure(state=tk.DISABLED)
 
     def refresh_all(self):
-        self.refresh_repo_list()
-        if self.github:
-            self.fetch_remote_repos()
+        self._set_buttons_state(tk.DISABLED)
+        self.status_var.set("正在刷新...")
+
+        def _do():
+            if self.github:
+                repos = self.github.list_user_repos()
+                self.root.after(0, lambda: self._update_remote_tree(repos))
+            self.root.after(0, self.refresh_repo_list)
+            self.root.after(0, lambda: self._on_sync_done("刷新完成"))
+
+        self.run_in_thread(_do)
 
     def refresh_repo_list(self):
         for item in self.repo_tree.get_children():
@@ -680,54 +685,18 @@ class GitHubManagerApp:
             messagebox.showwarning("警告", "请先选择要下载的仓库")
             return
 
-        repos_with_changes = []
-        repos_with_remote_updates = []
+        self._set_buttons_state(tk.DISABLED)
+        self.status_var.set("正在检查仓库状态...")
 
-        for path in repos_to_pull:
-            ok, status = self.git.status(path)
-            if ok and status.strip():
-                repos_with_changes.append(os.path.basename(path))
+        def _check():
+            repos_with_changes = []
+            repos_with_remote_updates = []
 
-            self.git.run_git(path, ["fetch", "origin"])
-            ok, branch = self.git.run_git(path, ["branch", "--show-current"])
-            branch = branch.strip() if ok and branch.strip() else "main"
-            ok, local_time = self.git.run_git(path, ["log", "-1", "--format=%at"])
-            ok2, remote_time = self.git.run_git(path, ["log", "-1", "--format=%at", f"origin/{branch}"])
-            if ok and ok2 and local_time and remote_time and local_time.strip() and remote_time.strip():
-                if int(remote_time.strip()) > int(local_time.strip()):
-                    repos_with_remote_updates.append(os.path.basename(path))
-
-        msg_parts = []
-        if repos_to_clone:
-            msg_parts.append("将克隆以下仓库:\n" + "\n".join([r[0] for r in repos_to_clone]))
-        if repos_with_changes:
-            msg_parts.append("以下仓库有未保存的修改:\n" + "\n".join(repos_with_changes))
-        if repos_with_remote_updates:
-            msg_parts.append("以下仓库云端有更新:\n" + "\n".join(repos_with_remote_updates))
-
-        if msg_parts:
-            msg = "\n\n".join(msg_parts) + "\n\n是否继续下载?"
-            if not messagebox.askyesno("确认", msg):
-                return
-
-        def _pull():
-            for repo_name, clone_url, repo_path in repos_to_clone:
-                self.git.clone(clone_url, repo_path, log_callback=self.log)
             for path in repos_to_pull:
-                self.git.pull(path, log_callback=self.log)
-            self.root.after(0, self.refresh_repo_list)
+                ok, status = self.git.status(path)
+                if ok and status.strip():
+                    repos_with_changes.append(os.path.basename(path))
 
-        self.run_in_thread(_pull)
-
-    def push_repos(self):
-        if not self.selected_repos:
-            messagebox.showwarning("警告", "请先选择要上传的仓库")
-            return
-
-        repos_with_remote_updates = []
-
-        for path in self.selected_repos:
-            if self.git.is_git_repo(path):
                 self.git.run_git(path, ["fetch", "origin"])
                 ok, branch = self.git.run_git(path, ["branch", "--show-current"])
                 branch = branch.strip() if ok and branch.strip() else "main"
@@ -737,72 +706,161 @@ class GitHubManagerApp:
                     if int(remote_time.strip()) > int(local_time.strip()):
                         repos_with_remote_updates.append(os.path.basename(path))
 
-        if repos_with_remote_updates:
-            msg = "以下仓库云端有更新，建议先下载:\n" + "\n".join(repos_with_remote_updates) + "\n\n是否继续上传?"
-            if not messagebox.askyesno("确认", msg):
-                return
+            def _ask():
+                msg_parts = []
+                if repos_to_clone:
+                    msg_parts.append("将克隆以下仓库:\n" + "\n".join([r[0] for r in repos_to_clone]))
+                if repos_with_changes:
+                    msg_parts.append("以下仓库有未保存的修改:\n" + "\n".join(repos_with_changes))
+                if repos_with_remote_updates:
+                    msg_parts.append("以下仓库云端有更新:\n" + "\n".join(repos_with_remote_updates))
 
-        has_changes = False
-        for path in self.selected_repos:
-            if self.git.is_git_repo(path):
-                ok, status = self.git.status(path)
-                if ok and status.strip():
+                proceed = True
+                if msg_parts:
+                    msg = "\n\n".join(msg_parts) + "\n\n是否继续下载?"
+                    proceed = messagebox.askyesno("确认", msg)
+
+                if not proceed:
+                    self._set_buttons_state(tk.NORMAL)
+                    self.status_var.set("就绪")
+                    return
+
+                self._do_pull(repos_to_pull, repos_to_clone)
+
+            self.root.after(0, _ask)
+
+        self.run_in_thread(_check)
+
+    def _do_pull(self, repos_to_pull, repos_to_clone):
+        self.status_var.set("正在下载...")
+
+        def _pull():
+            for repo_name, clone_url, repo_path in repos_to_clone:
+                self.git.clone(clone_url, repo_path, log_callback=self.log)
+            for path in repos_to_pull:
+                self.git.pull(path, log_callback=self.log)
+            self.root.after(0, lambda: self._on_sync_done("下载完成"))
+
+        self.run_in_thread(_pull)
+
+    def push_repos(self):
+        if not self.selected_repos:
+            messagebox.showwarning("警告", "请先选择要上传的仓库")
+            return
+
+        self._set_buttons_state(tk.DISABLED)
+        self.status_var.set("正在检查仓库状态...")
+
+        selected = list(self.selected_repos)
+
+        def _check():
+            repos_with_remote_updates = []
+            has_changes = False
+
+            for path in selected:
+                if not self.git.is_git_repo(path):
+                    continue
+                self.git.run_git(path, ["fetch", "origin"])
+                ok, branch = self.git.run_git(path, ["branch", "--show-current"])
+                branch = branch.strip() if ok and branch.strip() else "main"
+                ok, local_time = self.git.run_git(path, ["log", "-1", "--format=%at"])
+                ok2, remote_time = self.git.run_git(path, ["log", "-1", "--format=%at", f"origin/{branch}"])
+                if ok and ok2 and local_time and remote_time and local_time.strip() and remote_time.strip():
+                    if int(remote_time.strip()) > int(local_time.strip()):
+                        repos_with_remote_updates.append(os.path.basename(path))
+
+                ok_s, status = self.git.status(path)
+                if ok_s and status.strip():
                     has_changes = True
-                    break
 
-        commit_msg = ""
-        if has_changes:
-            dialog = tk.Toplevel(self.root)
-            dialog.title("提交信息")
-            dialog.geometry("400x150")
-            dialog.transient(self.root)
-            dialog.grab_set()
-            dialog.update_idletasks()
-            x = self.root.winfo_rootx() + (self.root.winfo_width() - 400) // 2
-            y = self.root.winfo_rooty() + (self.root.winfo_height() - 150) // 2
-            dialog.geometry(f"+{x}+{y}")
+            def _next():
+                if repos_with_remote_updates:
+                    msg = "以下仓库云端有更新，建议先下载:\n" + "\n".join(repos_with_remote_updates) + "\n\n是否继续上传?"
+                    if not messagebox.askyesno("确认", msg):
+                        self._set_buttons_state(tk.NORMAL)
+                        self.status_var.set("就绪")
+                        return
 
-            ttk.Label(dialog, text="请输入提交信息:").pack(pady=(10, 5))
+                if has_changes:
+                    commit_msg = self._ask_commit_message(selected)
+                    if commit_msg is None:
+                        self._set_buttons_state(tk.NORMAL)
+                        self.status_var.set("就绪")
+                        return
+                else:
+                    commit_msg = ""
 
-            text_var = tk.StringVar(value=f"update {os.path.basename(list(self.selected_repos)[0])}")
-            text_entry = ttk.Entry(dialog, textvariable=text_var, width=50)
-            text_entry.pack(pady=5, padx=10)
-            text_entry.select_range(0, tk.END)
-            text_entry.focus()
+                self._do_push(selected, commit_msg)
 
-            result = [None]
+            self.root.after(0, _next)
 
-            def on_ok():
-                result[0] = text_var.get()
-                dialog.destroy()
+        self.run_in_thread(_check)
 
-            def on_cancel():
-                dialog.destroy()
+    def _ask_commit_message(self, selected):
+        default_msg = f"update {os.path.basename(selected[0])}"
+        result = {"msg": None}
 
-            btn_frame = ttk.Frame(dialog)
-            btn_frame.pack(pady=10)
-            ttk.Button(btn_frame, text="确定", command=on_ok).pack(side=tk.LEFT, padx=5)
-            ttk.Button(btn_frame, text="取消", command=on_cancel).pack(side=tk.LEFT, padx=5)
+        dialog = tk.Toplevel(self.root)
+        dialog.title("提交信息")
+        dialog.geometry("400x150")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - 400) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - 150) // 2
+        dialog.geometry(f"+{x}+{y}")
 
-            self.root.wait_window(dialog)
+        ttk.Label(dialog, text="请输入提交信息:").pack(pady=(10, 5))
 
-            commit_msg = result[0]
-            if commit_msg is None:
-                return
-            if not commit_msg:
-                commit_msg = f"update {os.path.basename(list(self.selected_repos)[0])}"
+        text_var = tk.StringVar(value=default_msg)
+        text_entry = ttk.Entry(dialog, textvariable=text_var, width=50)
+        text_entry.pack(pady=5, padx=10)
+        text_entry.select_range(0, tk.END)
+        text_entry.focus()
+
+        def on_ok():
+            result["msg"] = text_var.get()
+            dialog.destroy()
+
+        def on_cancel():
+            dialog.destroy()
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="确定", command=on_ok).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="取消", command=on_cancel).pack(side=tk.LEFT, padx=5)
+
+        self.root.wait_window(dialog)
+        return result["msg"]
+
+    def _do_push(self, selected, commit_msg):
+        self.status_var.set("正在上传...")
 
         def _push():
-            for path in self.selected_repos:
+            for path in selected:
                 if self.git.is_git_repo(path):
                     ok, status = self.git.status(path)
                     if ok and status.strip():
                         msg = commit_msg if commit_msg else f"update {os.path.basename(path)}"
                         self.git.commit(path, msg, log_callback=self.log)
                     self.git.push(path, log_callback=self.log)
-            self.root.after(1000, self.refresh_repo_list)
+            self.root.after(0, lambda: self._on_sync_done("上传完成"))
 
         self.run_in_thread(_push)
+
+    def _on_sync_done(self, msg):
+        self.log(msg)
+        self.status_var.set("就绪")
+        self._set_buttons_state(tk.NORMAL)
+        self.refresh_repo_list()
+
+    def _set_buttons_state(self, state):
+        # 同步/刷新类按钮，名称固定；找不到的忽略
+        for btn in (self.refresh_btn, self.pull_btn, self.push_btn):
+            try:
+                btn.configure(state=state)
+            except tk.TclError:
+                pass
 
     def create_remote_repo(self):
         if not self.github:
