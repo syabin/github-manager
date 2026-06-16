@@ -427,7 +427,7 @@ class GitHubManagerApp:
         self._scanning = False
         self.setup_ui()
         self.load_settings()
-        self.refresh_repo_list()
+        self.refresh_repo_list(check_remote=True)
         if self.github:
             self.fetch_remote_repos()
 
@@ -616,12 +616,12 @@ class GitHubManagerApp:
             if self.github:
                 repos = self.github.list_user_repos()
                 self.root.after(0, lambda: self._update_remote_tree(repos))
-            self.root.after(0, self.refresh_repo_list)
+            self.root.after(0, lambda: self.refresh_repo_list(check_remote=True))
             self.root.after(0, lambda: self._on_sync_done("刷新完成"))
 
         self.run_in_thread(_do)
 
-    def refresh_repo_list(self):
+    def refresh_repo_list(self, check_remote=False):
         if self._scanning:
             return
         self._scanning = True
@@ -637,7 +637,7 @@ class GitHubManagerApp:
         def _worker():
             try:
                 repos = self.git.get_local_repos(
-                    path, self.config.config.get("exclude_dirs", []), check_remote=True
+                    path, self.config.config.get("exclude_dirs", []), check_remote=check_remote
                 )
                 self.root_after(self._finish_scan, repos)
             except Exception:
