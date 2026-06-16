@@ -202,7 +202,7 @@ class GitManager:
         ok, msg = self.run_git(repo_path, ["branch", "--show-current"])
         return msg.strip() if ok else "main"
 
-    def get_local_repos(self, base_path, exclude_dirs=None):
+    def get_local_repos(self, base_path, exclude_dirs=None, check_remote=False):
         repos = []
         if not os.path.exists(base_path):
             return repos
@@ -216,13 +216,28 @@ class GitManager:
                 is_git = self.is_git_repo(item_path)
                 status = ""
                 if is_git:
-                    ok, status = self.status(item_path)
+                    ok, local_status = self.status(item_path)
                     if not ok:
                         status = "未知"
-                    elif status:
+                    elif local_status:
                         status = "有修改"
                     else:
                         status = "已同步"
+
+                    # 检查云端是否有更新
+                    if check_remote and status in ("已同步", "有修改"):
+                        ok_fetch, _ = self.run_git(item_path, ["fetch", "origin"])
+                        if ok_fetch:
+                            ok_b, branch = self.run_git(item_path, ["branch", "--show-current"])
+                            branch = branch.strip() if ok_b and branch.strip() else "main"
+                            ok_l, local_time = self.run_git(item_path, ["log", "-1", "--format=%at"])
+                            ok_r, remote_time = self.run_git(item_path, ["log", "-1", "--format=%at", f"origin/{branch}"])
+                            if ok_l and ok_r and local_time.strip() and remote_time.strip():
+                                if int(remote_time.strip()) > int(local_time.strip()):
+                                    if status == "有修改":
+                                        status = "有修改+有更新"
+                                    else:
+                                        status = "有更新"
                 else:
                     status = "未初始化"
                 repos.append(
@@ -359,6 +374,11 @@ class GitHubManagerApp:
     def setup_ui(self):
         style = ttk.Style()
         style.configure("Status.TLabel", foreground="gray")
+        style.configure("Update.TLabel", foreground="red")
+        style.configure("UpdateChange.TLabel", foreground="orange")
+        style.configure("Modified.TLabel", foreground="dark orange")
+        style.configure("Synced.TLabel", foreground="green")
+        style.configure("Uninit.TLabel", foreground="gray")
 
         main_frame = ttk.Frame(self.root, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -399,7 +419,13 @@ class GitHubManagerApp:
         self.repo_tree.heading("name", text="仓库名称")
         self.repo_tree.heading("status", text="状态")
         self.repo_tree.column("name", width=200)
-        self.repo_tree.column("status", width=100)
+        self.repo_tree.column("status", width=120)
+        self.repo_tree.tag_configure("update", foreground="red")
+        self.repo_tree.tag_configure("update_change", foreground="orange")
+        self.repo_tree.tag_configure("modified", foreground="dark orange")
+        self.repo_tree.tag_configure("synced", foreground="green")
+        self.repo_tree.tag_configure("uninit", foreground="gray")
+        self.repo_tree.tag_configure("unknown", foreground="purple")
         self.repo_tree.pack(fill=tk.BOTH, expand=True)
 
         scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.repo_tree.yview)
@@ -408,6 +434,7 @@ class GitHubManagerApp:
 
         self.repo_tree.bind("<<TreeviewSelect>>", self.on_repo_select)
         self.repo_tree.bind("<Double-1>", self.on_repo_double_click)
+        self.repo_tree.bind("<Button-1>", self.on_repo_click)
 
         remote_frame = ttk.LabelFrame(content_frame, text="云端仓库", padding=5)
         remote_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
@@ -537,12 +564,40 @@ class GitHubManagerApp:
             self.log("仓库目录不存在或未设置")
             return
 
-        repos = self.git.get_local_repos(path, self.config.config.get("exclude_dirs", []))
+        repos = self.git.get_local_repos(
+            path, self.config.config.get("exclude_dirs", []), check_remote=True
+        )
+        status_tag_map = {
+            "有更新": "update",
+            "有修改+有更新": "update_change",
+            "有修改": "modified",
+            "已同步": "synced",
+            "未初始化": "uninit",
+            "未知": "unknown",
+        }
         for repo in repos:
+            tag = status_tag_map.get(repo["status"], "")
             self.repo_tree.insert(
-                "", tk.END, values=(repo["name"], repo["status"]), tags=(repo["path"],)
+                "", tk.END, values=(repo["name"], repo["status"]), tags=(repo["path"], tag)
             )
         self.log(f"找到 {len(repos)} 个仓库")
+
+    def on_repo_click(self, event):
+        # 单击已选中的行 → 取消选中（不与 Ctrl/Shift 多选冲突）
+        region = self.repo_tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        row_id = self.repo_tree.identify_row(event.y)
+        if not row_id:
+            return
+        # 修饰键按下时不做取消，保持多选行为
+        if event.state & (0x0004 | 0x0001):  # Ctrl or Shift
+            return
+        cur = self.repo_tree.selection()
+        if row_id in cur and len(cur) == 1:
+            self.repo_tree.selection_remove(row_id)
+            self.selected_repos.clear()
+            return "break"
 
     def on_repo_select(self, event):
         self.selected_repos.clear()
